@@ -13,15 +13,22 @@ page_aliases = {}
 generated_aliases = {}
 obsidian_home = ''
 wikipedia_mode = False
-paragraph_mode = False
+paragraph_mode = True
 yaml_mode = False
-regenerate_aliases = False
+regenerate_aliases = True
 clear_links = False
 
 def link_title(title, txt, current_title=''):
     updated_txt = txt
-    # find instances of the title where it's not surrounded by [], | or other letters
-    matches = re.finditer('(?<!([\[\w\|]))' + re.escape(title.lower()) + '(?!([\|\]\w]))', txt.lower())
+    # Matches full wiki links: (\[\[([\w\s|#^])+\]\])*
+
+    # find instances of the title where it's not surrounded by [], |, #, /, \ or other letters
+    # these are negative look ahead/behinds
+    link_start = r'(?<!([(\]\(\))\w\|\\\[/\#]))'
+    link_end = r'(?!([\|\]\w\\/\#\^]))'
+    # does not match if title is in front of ::
+    dataview_field = r'(?!(::))'
+    matches = re.finditer(link_start + re.escape(title.lower()) + link_end + dataview_field, txt.lower())
     offset = 0 # track the offset of our matches (start index) due to document modifications
     
     for m in matches:
@@ -86,7 +93,7 @@ if __name__ == '__main__':
         obsidian_home = sys.argv[1]
         if not os.path.isdir(obsidian_home):
             print('folder specified is not valid')
-            exit()
+            # exit()
         
         # check for additional flags
         if len(sys.argv) > 2:
@@ -113,32 +120,8 @@ if __name__ == '__main__':
         print("-p = only the first occurrence of a page title (or alias) in each paragraph will be linked ('paragraph mode')")
         print("-u = remove existing links in clipboard text before performing linking")
         # exit()
-
+    if obsidian_home == '': obsidian_home = r'C:\Users\aweso\Documents\GitHub\Obsidian-notes\SecondBrain\SecondBrain'
     aliases_file = obsidian_home + "\\aliases" + (".yml" if yaml_mode else ".md")
-
-    # get a directory listing of obsidian *.md files
-    # use it to build our list of titles and aliases
-    for root, dirs, files in os.walk(obsidian_home):
-        for file in files:
-            # ignore any 'dot' folders (.trash, .obsidian, etc.)
-            if file.endswith('.md') and '\\.' not in root and '/.' not in root:
-                page_title = re.sub(r'\.md$', '', file)
-                #print(page_title)
-                page_titles.append(page_title)
-                
-                # load yaml frontmatter and parse aliases
-                # if regenerate_aliases:
-                #     try:
-                #         with open(root + "/" + file, encoding="utf-8") as f:
-                #             #print(file)
-                #             fm = frontmatter.load(f)
-                            
-                #             if fm and 'aliases' in fm:
-                #                 #print(fm['aliases'])
-                #                 generated_aliases[page_title] = fm['aliases']
-                #     except yaml.YAMLError as exc:
-                #         print("Error processing aliases in file: " + file)
-                #         exit()
 
     # load the aliases file
     # we pivot (invert) the dict for lookup purposes
@@ -168,6 +151,30 @@ if __name__ == '__main__':
             except yaml.YAMLError as exc:
                 print(exc)
                 exit()
+                
+    # get a directory listing of obsidian *.md files
+    # use it to build our list of titles and aliases
+    for root, dirs, files in os.walk(obsidian_home):
+        for file in files:
+            # ignore any 'dot' folders (.trash, .obsidian, etc.)
+            if file.endswith('.md') and '\\.' not in root and '/.' not in root:
+                page_title = re.sub(r'\.md$', '', file)
+                #print(page_title)
+                page_titles.append(page_title)
+                # load yaml frontmatter and parse aliases
+                if regenerate_aliases:
+                    try:
+                        with open(root + "/" + file, encoding="utf-8") as f:
+                            #print(file)
+                            fm = frontmatter.load(f)
+                            
+                            if fm and 'aliases' in fm:
+                                #print(fm['aliases'])
+                                generated_aliases[page_title] = fm['aliases']
+                    except yaml.YAMLError as exc:
+                        print("Error processing aliases in file: " + file)
+                        # exit()
+
     # if -r passed on command line, regenerate aliases.yml
     # this is only necessary if new aliases are present
     if regenerate_aliases:
@@ -179,7 +186,8 @@ if __name__ == '__main__':
                 if title in aliases:
                     if aliases[title] != None:
                         for alias in aliases[title]:
-                            af.write("- " + alias + "\n")
+                            if alias != None:
+                                af.write("- " + alias + "\n")
                             # print(alias)
                 af.write("\n")
             if not yaml_mode: af.write("aliases:\n- ")
@@ -198,24 +206,55 @@ if __name__ == '__main__':
             # ignore any 'dot' folders (.trash, .obsidian, etc.)
             if file.endswith('.md') and '\\.' not in root and '/.' not in root and 'aliases' not in file:
                 with open(root + "/" + file, 'r', encoding="utf-8") as f:
-                    full_text = f.read()
+                    full_text = f.readlines()
                 # first_line = metamanager.find_frontmatter_end(full_text)
                 # plain_text = full_text[first_line:]
+                unlinkable_lines = []
+                yaml_lines, code_lines = [], []
+                for i in range(len(full_text)):
+                    if re.match(r"(---\s*)", full_text[i]) != None:
+                        yaml_lines.append(i)
+                    
+                    if re.match(r"```.*", full_text[i]) != None:
+                        code_lines.append(i)
+
+                    if re.match(r"^#{1,6} (.*)", full_text[i]):
+                        unlinkable_lines.append(i)
+
+                    if re.match(r".*::.*", full_text[i]):
+                        unlinkable_lines.append(i)
+
+                # code_lines.append(len(full_text))
+                if len(yaml_lines) > 0:
+                    if "".join(full_text[:yaml_lines[0]]).replace('\n', "").strip(" ") == "":
+                        unlinkable_lines.extend(range(0, yaml_lines[1]))
+                
+                if len(code_lines) % 2 == 1 : 
+                    last = code_lines.pop()
+                else:
+                    last = len(full_text)
+                if len(code_lines) > 0:
+                    i = 0
+                    while i < len(code_lines):
+                        unlinkable_lines.extend(range(code_lines[i], code_lines[i+1]))
+                        i += 2
+                unlinkable_lines.extend(range(last, len(full_text)))
+                
                 plain_text = full_text
                 # unlink text prior to processing if enabled
                 if (clear_links):
-                    plain_text = unlinkr.unlink_text(plain_text)
+                    full_text = [unlinkr.unlink_text(line) for line in full_text]
 
                 # prepare our linked text output
                 linked_txt = ""
 
-                if paragraph_mode:
-                    for paragraph in plain_text.split("\n"):
-                        linked_txt += link_content(paragraph, current_title=name) + "\n"
-                    linked_txt = linked_txt[:-1] # scrub the last newline
-                else:
-                    # linked_txt = link_content("\n".join(plain_text))
-                    linked_txt = link_content(plain_text, current_title=name)
+                for i in range(len(full_text)):
+                    if i in unlinkable_lines: 
+                        linked_txt += plain_text[i]
+                    else:
+                        linked_txt += link_content(full_text[i], current_title=name)
+                # linked_txt = linked_txt[:-1] # scrub the last newline
+                
                 with open(root + "/" + file, 'w', encoding="utf-8") as f:
                     # full_text = "\n".join(plain_text[:first_line-1]) + linked_txt
                     f.write(linked_txt)
