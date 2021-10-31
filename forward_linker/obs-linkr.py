@@ -13,9 +13,9 @@ page_aliases = {}
 generated_aliases = {}
 obsidian_home = ''
 wikipedia_mode = False
-paragraph_mode = True
+paragraph_mode = False
 yaml_mode = False
-regenerate_aliases = True
+regenerate_aliases = False
 clear_links = False
 
 def link_title(title, txt, current_title=''):
@@ -120,13 +120,13 @@ if __name__ == '__main__':
         print("-p = only the first occurrence of a page title (or alias) in each paragraph will be linked ('paragraph mode')")
         print("-u = remove existing links in clipboard text before performing linking")
         # exit()
-    if obsidian_home == '': obsidian_home = r'C:\Users\aweso\Documents\GitHub\Obsidian-notes\SecondBrain\SecondBrain'
+    if obsidian_home == '': obsidian_home = r'C:\Users\aweso\Documents\GitHub\Obsidian-Notes\SecondBrain'
     aliases_file = obsidian_home + "\\aliases" + (".yml" if yaml_mode else ".md")
 
     # load the aliases file
     # we pivot (invert) the dict for lookup purposes
     if os.path.isfile(aliases_file):
-        with open(aliases_file, 'r') as stream:
+        with open(aliases_file, 'r', encoding='utf-8') as stream:
             try:
                 # this line injects quotes around wikilinks so that yaml parsing won't fail
                 # we remove them later, so they are only a temporary measure
@@ -204,7 +204,9 @@ if __name__ == '__main__':
         for file in files:
             name = file.split('.')[0]
             # ignore any 'dot' folders (.trash, .obsidian, etc.)
-            if file.endswith('.md') and '\\.' not in root and '/.' not in root and 'aliases' not in file:
+            # check that file is in the Evergreens folder
+            if file.endswith('.md') and '\\.' not in root and '/.' not in root and 'Evergreens' in root or 'Topics' in root:
+            # if file.endswith('.md') and file.contains("Evergreens") or file.contains("Topics") and '\\.' not in root and '/.' not in root and 'aliases' not in file:
                 with open(root + "/" + file, 'r', encoding="utf-8") as f:
                     full_text = f.readlines()
                 # first_line = metamanager.find_frontmatter_end(full_text)
